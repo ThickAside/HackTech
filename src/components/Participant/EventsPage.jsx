@@ -296,9 +296,9 @@ export default function EventsPage() {
             const partCount = event.participants?.length || 0;
             const pctFull = Math.min(100, Math.round((partCount / event.maxParticipants) * 100));
 
-            // Load bannerUrl from local storage ht_events_extra cache
+            // Load bannerUrl from event object first (local events), then ht_events_extra (DB events)
             const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-            const banner = extras[event.id]?.bannerUrl || 'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?q=80&w=1200';
+            const banner = event.bannerUrl || extras[event.id]?.bannerUrl || 'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?q=80&w=1200';
 
             return (
               <div
@@ -340,12 +340,12 @@ export default function EventsPage() {
                       <Calendar size={13} className="text-primary" /> 
                       {(() => {
                         const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-                        const lastDateVal = extras[event.id]?.lastDate;
+                        const lastDateVal = event.lastDate || extras[event.id]?.lastDate;
                         return `${formatDate(event.date)}${lastDateVal ? ` - ${formatDate(lastDateVal)}` : ''}`;
                       })()}
                     </p>
 
-                    <p className="text-slate-400 text-[13.5px] line-clamp-3 mb-4 leading-relaxed">
+                    <p className="text-slate-400 text-[13.5px] mb-4 leading-relaxed">
                       {event.description}
                     </p>
                   </div>
@@ -516,7 +516,7 @@ export default function EventsPage() {
                     <Calendar size={12} className="text-primary" /> 
                     {(() => {
                       const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-                      const lastDateVal = extras[detailEvent.id]?.lastDate;
+                      const lastDateVal = detailEvent.lastDate || extras[detailEvent.id]?.lastDate;
                       return `${formatDate(detailEvent.date)}${lastDateVal ? ` - ${formatDate(lastDateVal)}` : ''}`;
                     })()}
                   </p>
