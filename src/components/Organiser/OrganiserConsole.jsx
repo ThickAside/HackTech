@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import ReactDOM from 'react-dom';
 import { supabase } from '../../supabase';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
@@ -40,6 +41,9 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
   const [showEventModal, setShowEventModal] = useState(false);
   const [eventFormMode, setEventFormMode] = useState('create');
   const [selectedEventId, setSelectedEventId] = useState(null);
+
+  // Custom delete confirmation modal state
+  const [deleteConfirm, setDeleteConfirm] = useState({ show: false, eventId: null, eventTitle: '' });
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
@@ -238,12 +242,14 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
     setTagsInput(ev.tags ? ev.tags.join(', ') : '');
     
     // Load metadata extras (theme, prize, bannerUrl, lastDate, maxTeamSize)
+    // For locally-created events, these are stored directly on the event object.
+    // For DB events, they are stored in ht_events_extra localStorage.
     const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
     const extraInfo = extras[ev.id] || {};
-    setThemeField(extraInfo.theme || '');
-    setPrizeField(extraInfo.prize || '');
-    setBannerUrl(extraInfo.bannerUrl || '');
-    setMaxTeamSize(extraInfo.maxTeamSize || ev.maxTeamSize || 4);
+    setThemeField(ev.theme || extraInfo.theme || '');
+    setPrizeField(ev.prize || extraInfo.prize || '');
+    setBannerUrl(ev.bannerUrl || extraInfo.bannerUrl || '');
+    setMaxTeamSize(ev.maxTeamSize || extraInfo.maxTeamSize || 4);
 
     // Format dates for input type datetime-local
     if (ev.date) {
@@ -255,8 +261,9 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
       setDate('');
     }
 
-    if (extraInfo.lastDate) {
-      const d = new Date(extraInfo.lastDate);
+    const lastDateValue = ev.lastDate || extraInfo.lastDate;
+    if (lastDateValue) {
+      const d = new Date(lastDateValue);
       const tzoffset = d.getTimezoneOffset() * 60000;
       const localISOTime = (new Date(d.getTime() - tzoffset)).toISOString().slice(0, 16);
       setLastDate(localISOTime);
@@ -311,8 +318,13 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
     }
   };
 
-  const handleDeleteEvent = async (id) => {
-    if (!window.confirm('Delete this event permanently from the system?')) return;
+  const handleRequestDeleteEvent = (id, title) => {
+    setDeleteConfirm({ show: true, eventId: id, eventTitle: title || 'this event' });
+  };
+
+  const handleConfirmDeleteEvent = async () => {
+    const id = deleteConfirm.eventId;
+    setDeleteConfirm({ show: false, eventId: null, eventTitle: '' });
     try {
       await deleteEvent(id);
       showToast('Event removed from platform records.', 'info');
@@ -664,7 +676,7 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
                     {events.slice(0, 3).map(ev => {
                       const isUpcoming = new Date(ev.date) > new Date();
                       const eventExtras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-                      const lastDateVal = eventExtras[ev.id]?.lastDate;
+                      const lastDateVal = ev.lastDate || eventExtras[ev.id]?.lastDate;
                       return (
                         <div key={ev.id} className="bg-slate-950/40 border border-slate-905 p-3 rounded-xl flex items-center justify-between gap-3 text-xs">
                           <div>
@@ -704,8 +716,8 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {events.map(ev => {
                   const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-                  const theme = extras[ev.id]?.theme || 'Tech Challenge';
-                  const prize = extras[ev.id]?.prize || 'Recognition';
+                  const theme = ev.theme || extras[ev.id]?.theme || 'Tech Challenge';
+                  const prize = ev.prize || extras[ev.id]?.prize || 'Recognition';
 
                   return (
                     <div key={ev.id} className="bg-slate-900/40 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between gap-4">
@@ -718,10 +730,10 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-450 mt-2 font-medium">
                           <span>📍 {ev.location}</span>
-                          <span>📅 {new Date(ev.date).toLocaleDateString()}{extras[ev.id]?.lastDate ? ` - ${new Date(extras[ev.id].lastDate).toLocaleDateString()}` : ''}</span>
+                          <span>📅 {new Date(ev.date).toLocaleDateString()}{(ev.lastDate || extras[ev.id]?.lastDate) ? ` - ${new Date(ev.lastDate || extras[ev.id].lastDate).toLocaleDateString()}` : ''}</span>
                           <span>⏳ {ev.participants?.length || 0} / {ev.maxParticipants} Registrants</span>
                         </div>
-                        <p className="text-xs text-slate-400 leading-relaxed mt-3 line-clamp-2">{ev.description}</p>
+                        <p className="text-xs text-slate-400 leading-relaxed mt-3">{ev.description}</p>
                       </div>
 
                       <div className="border-t border-slate-800/60 pt-3 flex justify-between items-center">
@@ -738,7 +750,7 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
                             <Edit size={14} />
                           </button>
                           <button
-                            onClick={() => handleDeleteEvent(ev.id)}
+                            onClick={(e) => { e.stopPropagation(); handleRequestDeleteEvent(ev.id, ev.title); }}
                             className="p-2 border border-slate-800 hover:border-danger/30 bg-slate-950 hover:bg-danger/10 rounded-lg text-slate-500 hover:text-danger transition-colors"
                             title="Delete Event"
                           >
@@ -1579,12 +1591,12 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
         </div>
       )}
 
-      {/* EVENT FORM MODAL (CREATE / EDIT) */}
-      {showEventModal && (
+      {/* EVENT FORM MODAL (CREATE / EDIT) — rendered via Portal */}
+      {showEventModal && ReactDOM.createPortal(
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-3 sm:p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[95vh] sm:max-h-[90vh] page-enter">
             {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-850 flex justify-between items-center">
+            <div className="p-4 sm:p-5 border-b border-slate-850 flex justify-between items-center shrink-0">
               <h3 className="font-outfit font-black text-xl text-slate-100">
                 {eventFormMode === 'create' ? 'Register New Tech Event' : 'Edit Event Details'}
               </h3>
@@ -1746,7 +1758,38 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {/* DELETE CONFIRMATION MODAL — rendered via Portal */}
+      {deleteConfirm.show && ReactDOM.createPortal(
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full shadow-2xl p-6 flex flex-col gap-5 page-enter">
+            <div className="flex flex-col gap-2 text-center">
+              <span className="text-3xl">⚠️</span>
+              <h3 className="font-outfit font-black text-lg text-slate-100">Delete Event?</h3>
+              <p className="text-sm text-slate-400 leading-relaxed">
+                Are you sure you want to permanently delete <strong className="text-slate-200">"{deleteConfirm.eventTitle}"</strong>? This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => setDeleteConfirm({ show: false, eventId: null, eventTitle: '' })}
+                className="px-5 py-2.5 text-slate-400 font-semibold font-outfit border border-slate-800 rounded-xl hover:bg-slate-850 text-xs transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDeleteEvent}
+                className="px-5 py-2.5 font-semibold font-outfit text-xs text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-lg shadow-red-600/20 transition-all active:scale-95"
+              >
+                Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
