@@ -100,7 +100,7 @@ export default function Dashboard() {
   const getEventDateRange = (ev) => {
     const start = new Date(ev.date).toLocaleDateString();
     const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-    const lastDateVal = extras[ev.id]?.lastDate;
+    const lastDateVal = ev.lastDate || extras[ev.id]?.lastDate;
     return lastDateVal ? `${start} - ${new Date(lastDateVal).toLocaleDateString()}` : start;
   };
 

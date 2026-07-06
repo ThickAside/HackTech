@@ -1,35 +1,40 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../supabase';
 import { Mail, Calendar, User, Award, ShieldAlert, BadgeInfo, Terminal, LogOut } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { fetchEvents, fetchTeams, fetchPosts, saveProfile } from '../../utils/supabaseFallback';
 
 export default function ProfilePage() {
-  const { userData } = useApp();
+  const { userData, handleLogout } = useApp();
   const [profileStats, setProfileStats] = useState({
     eventsJoined: 0,
     teamsCount: 0,
-    postsCreated: 0
+    postsCreated: 0,
+    eventsHosted: 0,
+    totalRegistrants: 0
   });
   const [loading, setLoading] = useState(true);
 
-  // Matchmaking extra states
+  // Matchmaking/Organiser extra states
   const [userLocation, setUserLocation] = useState('');
   const [userSkills, setUserSkills] = useState('');
   const [userInterests, setUserInterests] = useState('');
   const [userGithub, setUserGithub] = useState('');
   const [userLinkedin, setUserLinkedin] = useState('');
+  const [organization, setOrganization] = useState('');
+  const [orgRole, setOrgRole] = useState('');
 
   useEffect(() => {
     if (userData?.uid) {
       try {
         const extra = JSON.parse(localStorage.getItem('ht_users_extra')) || {};
-        const userExtra = extra[userData.uid] || { skills: '', location: '', interests: '', github: '', linkedin: '' };
+        const userExtra = extra[userData.uid] || {};
         setUserLocation(userExtra.location || '');
         setUserSkills(userExtra.skills || '');
         setUserInterests(userExtra.interests || '');
         setUserGithub(userExtra.github || '');
         setUserLinkedin(userExtra.linkedin || '');
+        setOrganization(userExtra.organization || '');
+        setOrgRole(userExtra.orgRole || '');
       } catch (err) { }
     }
   }, [userData]);
@@ -43,9 +48,11 @@ export default function ProfilePage() {
         location: userLocation.trim(),
         interests: userInterests.trim(),
         github: userGithub.trim(),
-        linkedin: userLinkedin.trim()
+        linkedin: userLinkedin.trim(),
+        organization: organization.trim(),
+        orgRole: orgRole.trim()
       }, false, userData.uid);
-      alert('Profile details updated successfully! Teammate matches will sync.');
+      alert('Profile details updated successfully!');
     } catch (err) {
       alert('Failed to save details.');
     }
@@ -56,24 +63,40 @@ export default function ProfilePage() {
       try {
         setLoading(true);
 
-        // Fetch Joined Events
         const eventsData = await fetchEvents();
-        const eventsCount = (eventsData || []).filter(e => e.participants?.includes(userData.uid)).length;
-
-        // Fetch Joined/Created Teams
-        const teamsData = await fetchTeams();
-        const teamsCount = (teamsData || []).filter(t => t.members?.includes(userData.uid)).length;
-
-        // Fetch Blog posts
         const postsData = await fetchPosts();
-        const postsCount = (postsData || []).filter(p => p.authorId === userData.uid).length;
 
-        setProfileStats({
-          eventsJoined: eventsCount,
-          teamsCount: teamsCount,
-          postsCreated: postsCount
-        });
+        if (userData?.role === 'organiser') {
+          // Calculate organiser stats
+          const hosted = (eventsData || []).filter(e => e.createdBy === userData.uid);
+          const hostedCount = hosted.length;
+          const totalRegs = hosted.reduce((acc, e) => acc + (e.participants?.length || 0), 0);
+          const postsCount = (postsData || []).filter(p => p.authorId === userData.uid).length;
+
+          setProfileStats({
+            eventsJoined: 0,
+            teamsCount: 0,
+            eventsHosted: hostedCount,
+            totalRegistrants: totalRegs,
+            postsCreated: postsCount
+          });
+        } else {
+          // Calculate participant stats
+          const eventsCount = (eventsData || []).filter(e => e.participants?.includes(userData.uid)).length;
+          const teamsData = await fetchTeams();
+          const teamsCount = (teamsData || []).filter(t => t.members?.includes(userData.uid)).length;
+          const postsCount = (postsData || []).filter(p => p.authorId === userData.uid).length;
+
+          setProfileStats({
+            eventsJoined: eventsCount,
+            teamsCount: teamsCount,
+            postsCreated: postsCount,
+            eventsHosted: 0,
+            totalRegistrants: 0
+          });
+        }
       } catch (err) {
+        console.error('Failed to load profile stats:', err);
       } finally {
         setLoading(false);
       }
@@ -93,7 +116,36 @@ export default function ProfilePage() {
     : 'Recently';
 
   // Badges logic based on accomplishments
-  const badges = [
+  const badges = userData?.role === 'organiser' ? [
+    {
+      id: 'active-host',
+      title: 'Active Host',
+      description: 'Hosted at least 1 tech event',
+      unlocked: profileStats.eventsHosted > 0,
+      icon: '📢'
+    },
+    {
+      id: 'community-builder',
+      title: 'Community Leader',
+      description: 'Managed at least 5 registrants total',
+      unlocked: profileStats.totalRegistrants >= 5,
+      icon: '👥'
+    },
+    {
+      id: 'storyteller',
+      title: 'Tech Speaker',
+      description: 'Published a tech stream story',
+      unlocked: profileStats.postsCreated > 0,
+      icon: '✍️'
+    },
+    {
+      id: 'admin-key',
+      title: 'Security Admin',
+      description: 'Has system administration keys',
+      unlocked: userData?.role === 'admin',
+      icon: '🛡️'
+    }
+  ] : [
     {
       id: 'active-coder',
       title: 'Active Coder',
@@ -127,7 +179,7 @@ export default function ProfilePage() {
   return (
     <div id="page-profile" className="page-enter max-w-4xl mx-auto">
       <h1 className="font-outfit font-black text-2xl sm:text-3xl text-slate-100 mb-6 sm:mb-8 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent inline-block">
-        Profile
+        {userData?.role === 'organiser' ? 'Organiser Profile' : 'Profile'}
       </h1>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 sm:gap-8">
@@ -168,23 +220,7 @@ export default function ProfilePage() {
 
             <button
               type="button"
-              onClick={async (e) => {
-                e.stopPropagation();
-                // 1. Clear local session cache immediately
-                localStorage.clear();
-
-                // 2. Perform Supabase server signOut with a timeout race to let the browser dispatch it
-                try {
-                  const signOutPromise = supabase.auth.signOut();
-                  const timeoutPromise = new Promise(resolve => setTimeout(resolve, 800));
-                  await Promise.race([signOutPromise, timeoutPromise]);
-                } catch (err) {
-                  console.warn("Sign out failed on server or timed out:", err);
-                }
-
-                // 3. Force clean window refresh
-                window.location.reload();
-              }}
+              onClick={handleLogout}
               className="w-full mt-4 flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-300 hover:text-white font-bold font-outfit py-3 px-4 rounded-xl shadow-sm transition-all active:scale-95 text-xs uppercase tracking-wider cursor-pointer"
             >
               <LogOut size={14} className="text-slate-400" /> Sign Out
@@ -194,10 +230,10 @@ export default function ProfilePage() {
 
         {/* Stats & Badge Vault */}
         <div className="md:col-span-7 flex flex-col gap-6">
-          {/* Developer Profile Customization */}
+          {/* Developer/Organiser Profile Customization */}
           <div className="bg-slate-900/45 border border-slate-800/80 rounded-2xl p-5 sm:p-6 shadow-sm">
             <h3 className="font-outfit font-extrabold text-[15px] sm:text-[17px] text-slate-100 border-b border-slate-800/60 pb-3 mb-4 flex items-center gap-2">
-              <Award size={18} className="text-primary" /> Developer Matchmaking Info
+              <Award size={18} className="text-primary" /> {userData?.role === 'organiser' ? 'Organiser Info' : 'Developer Matchmaking Info'}
             </h3>
 
             <form onSubmit={handleSaveDeveloperProfile} className="flex flex-col gap-4 text-xs sm:text-sm">
@@ -212,27 +248,54 @@ export default function ProfilePage() {
                 />
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10.5px] font-bold text-slate-455 uppercase tracking-wider">Technical Skills / Domains (comma-separated)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. AI, React, Cyber"
-                  value={userSkills}
-                  onChange={(e) => setUserSkills(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-805 rounded-xl px-3 py-2 text-slate-100 placeholder-slate-605 focus:outline-none"
-                />
-              </div>
+              {userData?.role === 'organiser' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10.5px] font-bold text-slate-450 uppercase tracking-wider">Organization / Affiliation</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Google, Valkyrie Tech"
+                      value={organization}
+                      onChange={(e) => setOrganization(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-805 rounded-xl px-3 py-2 text-slate-100 placeholder-slate-600 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10.5px] font-bold text-slate-450 uppercase tracking-wider">Organiser Role</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Program Lead, Hackathon Host"
+                      value={orgRole}
+                      onChange={(e) => setOrgRole(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-805 rounded-xl px-3 py-2 text-slate-100 placeholder-slate-600 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10.5px] font-bold text-slate-455 uppercase tracking-wider">Technical Skills / Domains (comma-separated)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. AI, React, Cyber"
+                      value={userSkills}
+                      onChange={(e) => setUserSkills(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-805 rounded-xl px-3 py-2 text-slate-100 placeholder-slate-605 focus:outline-none"
+                    />
+                  </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10.5px] font-bold text-slate-455 uppercase tracking-wider">Coding Interests / Hackathon Tracks</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Web3, GenAI, Edge Computing"
-                  value={userInterests}
-                  onChange={(e) => setUserInterests(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-805 rounded-xl px-3 py-2 text-slate-100 placeholder-slate-605 focus:outline-none"
-                />
-              </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10.5px] font-bold text-slate-455 uppercase tracking-wider">Coding Interests / Hackathon Tracks</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Web3, GenAI, Edge Computing"
+                      value={userInterests}
+                      onChange={(e) => setUserInterests(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-805 rounded-xl px-3 py-2 text-slate-100 placeholder-slate-605 focus:outline-none"
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
@@ -261,7 +324,7 @@ export default function ProfilePage() {
                 type="submit"
                 className="bg-primary hover:bg-primary/95 text-white font-bold font-outfit px-4 py-2.5 rounded-xl text-xs self-end active:scale-95 transition-all"
               >
-                Save Matching Details
+                {userData?.role === 'organiser' ? 'Save Organiser Details' : 'Save Matching Details'}
               </button>
             </form>
           </div>
@@ -278,14 +341,29 @@ export default function ProfilePage() {
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-3 sm:gap-4 text-center">
-                <div className="bg-slate-950/60 border border-slate-800/60 rounded-xl p-3 sm:p-4">
-                  <div className="text-xl sm:text-2xl font-black text-slate-100 leading-tight font-mono">{profileStats.eventsJoined}</div>
-                  <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wide mt-1">Events</div>
-                </div>
-                <div className="bg-slate-950/60 border border-slate-800/60 rounded-xl p-3 sm:p-4">
-                  <div className="text-xl sm:text-2xl font-black text-slate-100 leading-tight font-mono">{profileStats.teamsCount}</div>
-                  <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wide mt-1">Squads</div>
-                </div>
+                {userData?.role === 'organiser' ? (
+                  <>
+                    <div className="bg-slate-950/60 border border-slate-800/60 rounded-xl p-3 sm:p-4">
+                      <div className="text-xl sm:text-2xl font-black text-slate-100 leading-tight font-mono">{profileStats.eventsHosted}</div>
+                      <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wide mt-1">Hosted</div>
+                    </div>
+                    <div className="bg-slate-950/60 border border-slate-800/60 rounded-xl p-3 sm:p-4">
+                      <div className="text-xl sm:text-2xl font-black text-slate-100 leading-tight font-mono">{profileStats.totalRegistrants}</div>
+                      <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wide mt-1">Registrants</div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="bg-slate-950/60 border border-slate-800/60 rounded-xl p-3 sm:p-4">
+                      <div className="text-xl sm:text-2xl font-black text-slate-100 leading-tight font-mono">{profileStats.eventsJoined}</div>
+                      <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wide mt-1">Events</div>
+                    </div>
+                    <div className="bg-slate-950/60 border border-slate-800/60 rounded-xl p-3 sm:p-4">
+                      <div className="text-xl sm:text-2xl font-black text-slate-100 leading-tight font-mono">{profileStats.teamsCount}</div>
+                      <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wide mt-1">Squads</div>
+                    </div>
+                  </>
+                )}
                 <div className="bg-slate-950/60 border border-slate-800/60 rounded-xl p-3 sm:p-4">
                   <div className="text-xl sm:text-2xl font-black text-slate-100 leading-tight font-mono">{profileStats.postsCreated}</div>
                   <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wide mt-1">Stories</div>

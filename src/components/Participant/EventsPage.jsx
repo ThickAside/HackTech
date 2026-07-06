@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabase';
-import { Search, Plus, MapPin, Calendar, Users, Tag, Trash2, Edit, X, Info, Check, UserPlus } from 'lucide-react';
+import { Search, Plus, MapPin, Calendar, Users, Tag, Trash2, Edit, X, Info, Check, UserPlus, RefreshCw } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { fetchEvents as fetchEventsFallback, saveEvent, deleteEvent } from '../../utils/supabaseFallback';
 
@@ -13,7 +13,7 @@ export default function EventsPage() {
   const [selectedLocationFilter, setSelectedLocationFilter] = useState('all');
 
   const uniqueLocations = React.useMemo(() => {
-    const locations = events.map(e => e.city || e.location.split(',')[0].trim()).filter(Boolean);
+    const locations = events.map(e => e.city || (e.location || '').split(',')[0].trim()).filter(Boolean);
     return ['all', ...Array.from(new Set(locations))];
   }, [events]);
 
@@ -176,13 +176,19 @@ export default function EventsPage() {
 
   // Filter & Search Logics
   const filteredEvents = events.filter(e => {
-    const matchesSearch = e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (e.tags && e.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())));
+    const title = (e.title || '').toLowerCase();
+    const desc = (e.description || '').toLowerCase();
+    const loc = (e.location || '').toLowerCase();
+    const city = (e.city || '').toLowerCase();
+    const q = searchQuery.toLowerCase();
+
+    const matchesSearch = title.includes(q) ||
+      desc.includes(q) ||
+      (e.tags && e.tags.some(t => (t || '').toLowerCase().includes(q)));
 
     const matchesLocation = selectedLocationFilter === 'all' ||
-      (e.city && e.city.toLowerCase() === selectedLocationFilter.toLowerCase()) ||
-      e.location.toLowerCase().includes(selectedLocationFilter.toLowerCase());
+      city === selectedLocationFilter.toLowerCase() ||
+      loc.includes(selectedLocationFilter.toLowerCase());
 
     const isJoined = e.participants?.includes(userData.uid);
 
@@ -273,6 +279,15 @@ export default function EventsPage() {
             ))}
           </select>
         </div>
+
+        {/* Refresh Button */}
+        <button
+          onClick={fetchEvents}
+          title="Refresh events"
+          className="shrink-0 p-3 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 hover:text-primary hover:border-primary/40 transition-all active:scale-95"
+        >
+          <RefreshCw size={17} />
+        </button>
       </div>
 
       {/* Events Cards Grid */}

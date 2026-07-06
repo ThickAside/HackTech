@@ -10,6 +10,7 @@ import EventsPage from './components/Participant/EventsPage';
 import TeamsPage from './components/Participant/TeamsPage';
 import BlogPage from './components/Participant/BlogPage';
 import ProfilePage from './components/Participant/ProfilePage';
+import EventChannelPage from './components/Participant/EventChannelPage';
 
 import OrganiserConsole from './components/Organiser/OrganiserConsole';
 import ParticipantLayout from './components/Participant/ParticipantLayout';
@@ -101,6 +102,7 @@ function AppContent() {
           <Route path="teams" element={<TeamsPage />} />
           <Route path="blog" element={<BlogPage />} />
           <Route path="profile" element={<ProfilePage />} />
+          <Route path="channels" element={<EventChannelPage />} />
         </Route>
 
         {/* Organizer Space Protected Routes */}
@@ -115,6 +117,7 @@ function AppContent() {
           <Route path="participants" element={<OrganiserConsole activeTab="org-participants" />} />
           <Route path="teams" element={<OrganiserConsole activeTab="org-teams" />} />
           <Route path="announcements" element={<OrganiserConsole activeTab="org-announcements" />} />
+          <Route path="profile" element={<ProfilePage />} />
           <Route path="settings" element={<OrganiserConsole activeTab="org-settings" />} />
         </Route>
 
