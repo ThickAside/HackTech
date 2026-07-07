@@ -6,7 +6,7 @@ import {
   Bell, MessageSquare, Plus
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { fetchEvents, saveEvent, fetchTeams, fetchPosts } from '../../utils/supabaseFallback';
+import { fetchEvents, saveEvent, fetchTeams, fetchPosts, joinEvent, leaveEvent } from '../../utils/supabaseFallback';
 import welcomeImg from '../welcome.jpg';
 
 export default function Dashboard() {
@@ -69,20 +69,20 @@ export default function Dashboard() {
 
   const handleToggleJoinEvent = async (event) => {
     const isJoined = event.participants?.includes(userData.uid);
-    let nextParticipants = [...(event.participants || [])];
 
-    if (isJoined) {
-      nextParticipants = nextParticipants.filter(id => id !== userData.uid);
-    } else {
-      if (nextParticipants.length >= event.maxParticipants) {
-        showToast('This event has reached its maximum capacity.', 'warning');
-        return;
-      }
-      nextParticipants.push(userData.uid);
+    // Capacity guard (join only)
+    if (!isJoined && (event.participants?.length || 0) >= event.maxParticipants) {
+      showToast('This event has reached its maximum capacity.', 'warning');
+      return;
     }
 
     try {
-      await saveEvent({ ...event, participants: nextParticipants }, false, event.id);
+      // Call the SECURITY DEFINER RPC — works for any authenticated user
+      if (isJoined) {
+        await leaveEvent(event.id);
+      } else {
+        await joinEvent(event.id);
+      }
       showToast(
         isJoined ? 'Successfully left the event.' : 'Successfully registered for the event!',
         isJoined ? 'info' : 'success'

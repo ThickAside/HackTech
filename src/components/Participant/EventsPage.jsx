@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabase';
 import { Search, Plus, MapPin, Calendar, Users, Tag, Trash2, Edit, X, Info, Check, UserPlus, RefreshCw } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { fetchEvents as fetchEventsFallback, saveEvent, deleteEvent } from '../../utils/supabaseFallback';
+import { fetchEvents as fetchEventsFallback, saveEvent, deleteEvent, joinEvent, leaveEvent } from '../../utils/supabaseFallback';
 
 export default function EventsPage() {
   const { userData, showToast } = useApp();
@@ -139,31 +139,34 @@ export default function EventsPage() {
 
   const handleJoinLeaveEvent = async (event) => {
     const isJoined = event.participants?.includes(userData.uid);
-    let nextParticipants = [...(event.participants || [])];
 
-    if (isJoined) {
-      // Leave
-      nextParticipants = nextParticipants.filter(id => id !== userData.uid);
-    } else {
-      // Join
-      if (nextParticipants.length >= event.maxParticipants) {
-        showToast('This event has reached its maximum capacity.', 'warning');
-        return;
-      }
-      nextParticipants.push(userData.uid);
+    // Capacity guard (join only)
+    if (!isJoined && (event.participants?.length || 0) >= event.maxParticipants) {
+      showToast('This event has reached its maximum capacity.', 'warning');
+      return;
     }
 
     try {
-      // Update Event Participants via saveEvent helper
-      await saveEvent({ ...event, participants: nextParticipants }, false, event.id);
+      // Call the SECURITY DEFINER RPC — works for any authenticated user
+      if (isJoined) {
+        await leaveEvent(event.id);
+      } else {
+        await joinEvent(event.id);
+      }
 
       showToast(
         isJoined ? 'Successfully left the event.' : 'Successfully registered for the event!',
         isJoined ? 'info' : 'success'
       );
 
-      // Update local states
-      const updatedEvents = events.map(e => e.id === event.id ? { ...e, participants: nextParticipants } : e);
+      // Optimistically update local state so the UI is instant
+      const nextParticipants = isJoined
+        ? (event.participants || []).filter(id => id !== userData.uid)
+        : [...(event.participants || []), userData.uid];
+
+      const updatedEvents = events.map(e =>
+        e.id === event.id ? { ...e, participants: nextParticipants } : e
+      );
       setEvents(updatedEvents);
 
       if (detailEvent?.id === event.id) {
