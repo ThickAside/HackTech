@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabase';
-import { Search, Plus, MapPin, Calendar, Users, Tag, Trash2, Edit, X, Info, Check, UserPlus } from 'lucide-react';
+import { Search, Plus, MapPin, Calendar, Users, Tag, Trash2, Edit, X, Info, Check, UserPlus, RefreshCw } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { fetchEvents as fetchEventsFallback, saveEvent, deleteEvent } from '../../utils/supabaseFallback';
+import { fetchEvents as fetchEventsFallback, saveEvent, deleteEvent, joinEvent, leaveEvent } from '../../utils/supabaseFallback';
 
 export default function EventsPage() {
   const { userData, showToast } = useApp();
@@ -13,7 +13,7 @@ export default function EventsPage() {
   const [selectedLocationFilter, setSelectedLocationFilter] = useState('all');
 
   const uniqueLocations = React.useMemo(() => {
-    const locations = events.map(e => e.city || e.location.split(',')[0].trim()).filter(Boolean);
+    const locations = events.map(e => e.city || (e.location || '').split(',')[0].trim()).filter(Boolean);
     return ['all', ...Array.from(new Set(locations))];
   }, [events]);
 
@@ -139,31 +139,34 @@ export default function EventsPage() {
 
   const handleJoinLeaveEvent = async (event) => {
     const isJoined = event.participants?.includes(userData.uid);
-    let nextParticipants = [...(event.participants || [])];
 
-    if (isJoined) {
-      // Leave
-      nextParticipants = nextParticipants.filter(id => id !== userData.uid);
-    } else {
-      // Join
-      if (nextParticipants.length >= event.maxParticipants) {
-        showToast('This event has reached its maximum capacity.', 'warning');
-        return;
-      }
-      nextParticipants.push(userData.uid);
+    // Capacity guard (join only)
+    if (!isJoined && (event.participants?.length || 0) >= event.maxParticipants) {
+      showToast('This event has reached its maximum capacity.', 'warning');
+      return;
     }
 
     try {
-      // Update Event Participants via saveEvent helper
-      await saveEvent({ ...event, participants: nextParticipants }, false, event.id);
+      // Call the SECURITY DEFINER RPC — works for any authenticated user
+      if (isJoined) {
+        await leaveEvent(event.id);
+      } else {
+        await joinEvent(event.id);
+      }
 
       showToast(
         isJoined ? 'Successfully left the event.' : 'Successfully registered for the event!',
         isJoined ? 'info' : 'success'
       );
 
-      // Update local states
-      const updatedEvents = events.map(e => e.id === event.id ? { ...e, participants: nextParticipants } : e);
+      // Optimistically update local state so the UI is instant
+      const nextParticipants = isJoined
+        ? (event.participants || []).filter(id => id !== userData.uid)
+        : [...(event.participants || []), userData.uid];
+
+      const updatedEvents = events.map(e =>
+        e.id === event.id ? { ...e, participants: nextParticipants } : e
+      );
       setEvents(updatedEvents);
 
       if (detailEvent?.id === event.id) {
@@ -176,13 +179,19 @@ export default function EventsPage() {
 
   // Filter & Search Logics
   const filteredEvents = events.filter(e => {
-    const matchesSearch = e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (e.tags && e.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())));
+    const title = (e.title || '').toLowerCase();
+    const desc = (e.description || '').toLowerCase();
+    const loc = (e.location || '').toLowerCase();
+    const city = (e.city || '').toLowerCase();
+    const q = searchQuery.toLowerCase();
+
+    const matchesSearch = title.includes(q) ||
+      desc.includes(q) ||
+      (e.tags && e.tags.some(t => (t || '').toLowerCase().includes(q)));
 
     const matchesLocation = selectedLocationFilter === 'all' ||
-      (e.city && e.city.toLowerCase() === selectedLocationFilter.toLowerCase()) ||
-      e.location.toLowerCase().includes(selectedLocationFilter.toLowerCase());
+      city === selectedLocationFilter.toLowerCase() ||
+      loc.includes(selectedLocationFilter.toLowerCase());
 
     const isJoined = e.participants?.includes(userData.uid);
 
@@ -273,6 +282,15 @@ export default function EventsPage() {
             ))}
           </select>
         </div>
+
+        {/* Refresh Button */}
+        <button
+          onClick={fetchEvents}
+          title="Refresh events"
+          className="shrink-0 p-3 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 hover:text-primary hover:border-primary/40 transition-all active:scale-95"
+        >
+          <RefreshCw size={17} />
+        </button>
       </div>
 
       {/* Events Cards Grid */}
@@ -296,9 +314,9 @@ export default function EventsPage() {
             const partCount = event.participants?.length || 0;
             const pctFull = Math.min(100, Math.round((partCount / event.maxParticipants) * 100));
 
-            // Load bannerUrl from local storage ht_events_extra cache
+            // Load bannerUrl from event object first (local events), then ht_events_extra (DB events)
             const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-            const banner = extras[event.id]?.bannerUrl || 'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?q=80&w=1200';
+            const banner = event.bannerUrl || extras[event.id]?.bannerUrl || 'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?q=80&w=1200';
 
             return (
               <div
@@ -340,12 +358,12 @@ export default function EventsPage() {
                       <Calendar size={13} className="text-primary" /> 
                       {(() => {
                         const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-                        const lastDateVal = extras[event.id]?.lastDate;
+                        const lastDateVal = event.lastDate || extras[event.id]?.lastDate;
                         return `${formatDate(event.date)}${lastDateVal ? ` - ${formatDate(lastDateVal)}` : ''}`;
                       })()}
                     </p>
 
-                    <p className="text-slate-400 text-[13.5px] line-clamp-3 mb-4 leading-relaxed">
+                    <p className="text-slate-400 text-[13.5px] mb-4 leading-relaxed">
                       {event.description}
                     </p>
                   </div>
@@ -516,7 +534,7 @@ export default function EventsPage() {
                     <Calendar size={12} className="text-primary" /> 
                     {(() => {
                       const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-                      const lastDateVal = extras[detailEvent.id]?.lastDate;
+                      const lastDateVal = detailEvent.lastDate || extras[detailEvent.id]?.lastDate;
                       return `${formatDate(detailEvent.date)}${lastDateVal ? ` - ${formatDate(lastDateVal)}` : ''}`;
                     })()}
                   </p>

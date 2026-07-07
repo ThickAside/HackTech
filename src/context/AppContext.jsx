@@ -139,12 +139,19 @@ export function AppContextProvider({ children }) {
     };
   }, []);
 
+  const clearAuthSession = () => {
+    // Only remove Supabase auth tokens — preserve all app data (events, teams, etc.)
+    const keysToRemove = Object.keys(localStorage).filter(
+      key => key.startsWith('sb-') || key === 'supabase.auth.token'
+    );
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+  };
+
   const handleLogout = async () => {
     setUser(null);
     setUserData(null);
     setIsRecoveryMode(false);
-    localStorage.clear();
-    
+
     try {
       const signOutPromise = supabase.auth.signOut();
       const timeoutPromise = new Promise(resolve => setTimeout(resolve, 800));
@@ -152,7 +159,10 @@ export function AppContextProvider({ children }) {
     } catch (err) {
       console.warn("SignOut error:", err);
     }
-    
+
+    // Clear only auth session keys, not app data
+    clearAuthSession();
+
     window.location.href = '/login';
   };
 

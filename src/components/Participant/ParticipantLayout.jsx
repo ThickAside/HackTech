@@ -3,106 +3,172 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { 
   LayoutDashboard, Calendar, Users, FileText, UserCheck, 
-  Sun, Moon, LogOut 
+  Sun, Moon, LogOut, Megaphone, ChevronLeft, ChevronRight
 } from 'lucide-react';
 
 export default function ParticipantLayout() {
   const { userData, theme, setTheme, handleLogout } = useApp();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('ht_sidebar_p_collapsed') === 'true'; } catch { return false; }
+  });
   const location = useLocation();
+
+  const toggleCollapse = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    try { localStorage.setItem('ht_sidebar_p_collapsed', String(next)); } catch {}
+  };
 
   const displayName = userData?.name || userData?.email?.split('@')[0] || 'Developer';
   const initials = displayName.split(' ').filter(Boolean).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
   const navItems = [
-    { path: '/dashboard/participant', label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
-    { path: '/dashboard/participant/events', label: 'Events Catalog', icon: <Calendar size={16} /> },
-    { path: '/dashboard/participant/teams', label: 'My Teams', icon: <Users size={16} /> },
-    { path: '/dashboard/participant/blog', label: 'Blog Feed', icon: <FileText size={16} /> },
-    { path: '/dashboard/participant/profile', label: 'My Profile', icon: <UserCheck size={16} /> },
+    { path: '/dashboard/participant', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
+    { path: '/dashboard/participant/events', label: 'Events Catalog', icon: <Calendar size={18} /> },
+    { path: '/dashboard/participant/teams', label: 'My Teams', icon: <Users size={18} /> },
+    { path: '/dashboard/participant/blog', label: 'Blog Feed', icon: <FileText size={18} /> },
+    { path: '/dashboard/participant/channels', label: 'Event Channels', icon: <Megaphone size={18} /> },
+    { path: '/dashboard/participant/profile', label: 'My Profile', icon: <UserCheck size={18} /> },
   ];
+
+  const sidebarW = collapsed ? '72px' : '240px';
+  const mainML = collapsed ? '72px' : '240px';
 
   return (
     <div className="relative min-h-screen bg-slate-950 text-slate-100 flex overflow-hidden">
 
       {/* Navigation Sidebar */}
-      <aside 
-        id="sidebar" 
-        className={`fixed top-0 left-0 w-[240px] xl:w-[260px] h-screen bg-slate-950/80 border-r border-slate-900/60 backdrop-blur-lg flex flex-col py-6 z-[100] transition-transform duration-300 max-[1024px]:-translate-x-full ${mobileOpen ? 'max-[1024px]:translate-x-0 max-[1024px]:shadow-lg' : ''}`}
+      <aside
+        id="sidebar"
+        style={{ width: sidebarW }}
+        className={`fixed top-0 left-0 h-screen bg-slate-950/90 border-r border-slate-900/60 backdrop-blur-lg flex flex-col py-6 z-[100] transition-all duration-300 ease-in-out max-[1024px]:w-[240px] max-[1024px]:-translate-x-full ${mobileOpen ? 'max-[1024px]:translate-x-0 max-[1024px]:shadow-2xl' : ''}`}
         aria-label="Participant Navigation"
       >
-        <div className="flex items-center px-6 mb-8 select-none">
-          <span className="font-outfit font-black text-2xl bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">HackTech</span>
+        {/* Logo + Collapse toggle */}
+        <div className="flex items-center px-4 mb-8 select-none gap-2 overflow-hidden">
+          {!collapsed && (
+            <span className="font-outfit font-black text-2xl bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent whitespace-nowrap">HackTech</span>
+          )}
+          <button
+            onClick={toggleCollapse}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={`${collapsed ? 'mx-auto' : 'ml-auto'} shrink-0 p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-900 transition-all max-[1024px]:hidden`}
+          >
+            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          </button>
         </div>
 
-        <nav className="flex-1 flex flex-col min-h-0 overflow-y-auto space-y-6">
-          <div>
-            <div className="text-[11px] font-bold text-slate-500 tracking-widest uppercase px-6 mb-2">Workspace</div>
-            
-            {navItems.map(item => {
-              const active = location.pathname === item.path;
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setMobileOpen(false)}
-                  className={`flex items-center gap-3 px-6 py-3 cursor-pointer text-[15px] font-semibold border-l-[3px] border-transparent transition-all hover:bg-slate-905/50 hover:text-slate-100 ${active ? 'text-primary bg-primary/8 border-primary font-bold' : 'text-slate-400'}`}
-                >
-                  <span className={active ? 'text-primary' : 'text-slate-400'}>{item.icon}</span>
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
+        <nav className="flex-1 flex flex-col min-h-0 overflow-y-auto space-y-1">
+          {!collapsed && (
+            <div className="text-[11px] font-bold text-slate-500 tracking-widest uppercase px-5 mb-2">Workspace</div>
+          )}
+
+          {navItems.map(item => {
+            const active = location.pathname === item.path;
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                onClick={() => setMobileOpen(false)}
+                title={collapsed ? item.label : undefined}
+                className={`group relative flex items-center gap-3 py-3 cursor-pointer text-[15px] font-semibold border-l-[3px] border-transparent transition-all hover:bg-slate-900/50 hover:text-slate-100
+                  ${collapsed ? 'px-0 justify-center border-l-0' : 'px-5'}
+                  ${active ? 'text-primary bg-primary/8 border-primary font-bold' : 'text-slate-400'}`}
+              >
+                <span className={`shrink-0 ${active ? 'text-primary' : 'text-slate-400 group-hover:text-slate-200'} transition-colors`}>
+                  {item.icon}
+                </span>
+                {!collapsed && <span className="truncate">{item.label}</span>}
+                {/* Tooltip when collapsed */}
+                {collapsed && (
+                  <span className="pointer-events-none absolute left-[calc(100%+8px)] top-1/2 -translate-y-1/2 bg-slate-900 border border-slate-800 text-slate-100 text-xs font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-lg">
+                    {item.label}
+                  </span>
+                )}
+              </Link>
+            );
+          })}
         </nav>
 
         {/* Theme switch & user status */}
-        <div className="mt-auto px-6 pt-4 border-t border-slate-900/60 flex flex-col gap-3.5 shrink-0">
-          <button
-            onClick={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')}
-            className="flex items-center justify-between w-full bg-slate-900/35 hover:bg-slate-900/60 border border-slate-800/80 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-450 hover:text-slate-200 transition-colors shadow-sm cursor-pointer"
-          >
-            <span className="flex items-center gap-2">
-              {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
-              <span>{theme === 'light' ? 'Dark Mode' : 'Light Mode'}</span>
-            </span>
-            <span className="text-[9px] font-mono tracking-wider bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 text-slate-500 uppercase">{theme}</span>
-          </button>
-
-          <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-900/40 cursor-pointer group transition-colors">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-outfit font-bold text-sm shrink-0">
-              {initials}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-slate-200 text-sm truncate">{displayName}</div>
-              <div className="text-[10px] text-slate-400 capitalize font-medium">Developer</div>
-            </div>
-            <button 
-              onClick={handleLogout}
-              className="text-slate-500 text-base p-1.5 rounded-lg hover:text-danger hover:bg-slate-900 transition-all shrink-0 cursor-pointer"
-              title="Logout"
+        <div className={`mt-auto pt-4 border-t border-slate-900/60 flex flex-col gap-3.5 shrink-0 ${collapsed ? 'px-0 items-center' : 'px-5'}`}>
+          {/* Theme toggle */}
+          {collapsed ? (
+            <button
+              onClick={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')}
+              title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-200 hover:bg-slate-900 border border-slate-800 transition-all"
             >
-              <LogOut size={15} />
+              {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
             </button>
-          </div>
+          ) : (
+            <button
+              onClick={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')}
+              className="flex items-center justify-between w-full bg-slate-900/35 hover:bg-slate-900/60 border border-slate-800/80 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-450 hover:text-slate-200 transition-colors shadow-sm cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
+                <span>{theme === 'light' ? 'Dark Mode' : 'Light Mode'}</span>
+              </span>
+              <span className="text-[9px] font-mono tracking-wider bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 text-slate-500 uppercase">{theme}</span>
+            </button>
+          )}
+
+          {/* User card */}
+          {collapsed ? (
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-outfit font-bold text-sm shrink-0" title={displayName}>
+                {initials}
+              </div>
+              <button
+                onClick={handleLogout}
+                title="Logout"
+                className="text-slate-500 p-1.5 rounded-lg hover:text-red-400 hover:bg-slate-900 transition-all cursor-pointer"
+              >
+                <LogOut size={15} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-900/40 cursor-pointer group transition-colors">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-outfit font-bold text-sm shrink-0">
+                {initials}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-slate-200 text-sm truncate">{displayName}</div>
+                <div className="text-[10px] text-slate-400 capitalize font-medium">Developer</div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="text-slate-500 text-base p-1.5 rounded-lg hover:text-red-400 hover:bg-slate-900 transition-all shrink-0 cursor-pointer"
+                title="Logout"
+              >
+                <LogOut size={15} />
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 
-      {/* Hamburger menu trigger */}
-      <button 
+      {/* Hamburger menu trigger (mobile) */}
+      <button
         onClick={() => setMobileOpen(prev => !prev)}
         className="fixed top-4 left-4 z-[999] hidden max-[1024px]:flex w-10 h-10 bg-slate-900 border border-slate-800 rounded-xl items-center justify-center text-slate-200 shadow-md cursor-pointer"
         aria-label="Toggle menu"
       >
         ☰
       </button>
-      <div 
+      <div
         onClick={() => setMobileOpen(false)}
         className={`fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[90] hidden ${mobileOpen ? 'max-[1024px]:block' : ''}`}
       />
 
       {/* Primary content area */}
-      <main id="content" className="flex-1 ml-[240px] xl:ml-[260px] min-h-screen p-6 xl:p-10 overflow-y-auto max-[1024px]:ml-0 max-[1024px]:p-4 sm:p-5 max-[1024px]:pt-[80px] relative z-10">
+      <main
+        id="content"
+        style={{ marginLeft: mainML }}
+        className="flex-1 min-h-screen p-6 xl:p-10 overflow-y-auto max-[1024px]:ml-0 max-[1024px]:p-4 sm:p-5 max-[1024px]:pt-[80px] relative z-10 transition-all duration-300"
+      >
         <Outlet />
       </main>
     </div>

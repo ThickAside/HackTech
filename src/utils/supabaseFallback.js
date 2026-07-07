@@ -1,144 +1,114 @@
 import { supabase } from '../supabase';
 
-// Helper to wrap supabase queries with localStorage fallbacks for unsupported columns
-// NOTE: The events table has RLS that blocks INSERT/UPDATE/DELETE for all users.
-// Events are stored entirely in localStorage (ht_events_local) for full CRUD.
-// Any pre-existing DB rows are merged in read-only mode.
-
-function generateLocalId() {
-  return 'local_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-}
+// Events are now stored entirely in Supabase.
+// The RLS policies on the events table must allow organisers/admins to INSERT/UPDATE/DELETE.
+// All authenticated users can SELECT events.
 
 export async function fetchEvents() {
-  // 1. Fetch any existing DB events (read-only)
-  let dbEvents = [];
   try {
     const { data, error } = await supabase.from('events').select('*');
-    if (!error && data) dbEvents = data;
-  } catch (e) {
-    console.warn('Could not fetch DB events:', e.message);
-  }
+    if (error) throw error;
 
-  // 2. Load local-only events
-  const localEvents = JSON.parse(localStorage.getItem('ht_events_local')) || {};
-  const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-
-  // 3. Merge DB events with their extras
-  const mergedDbEvents = dbEvents.map(event => {
-    const extra = extras[event.id] || {};
-    return {
+    // Normalise DB column names to the camelCase keys the UI expects
+    return (data || []).map(event => ({
       ...event,
-      maxTeamSize: extra.maxTeamSize || 4,
-      tags: extra.tags || [],
-      updatedAt: extra.updatedAt || event.date,
-      createdBy: extra.createdBy || '',
-      participants: extra.participants || [],
-      bannerUrl: extra.bannerUrl || '',
-      theme: extra.theme || '',
-      prize: extra.prize || '',
-      lastDate: extra.lastDate || event.date
-    };
-  });
-
-  // 4. Convert local events map to array
-  const localEventsArr = Object.values(localEvents);
-
-  // 5. Return combined (DB events first, then local-only events)
-  return [...mergedDbEvents, ...localEventsArr];
+      maxParticipants: event.max_participants ?? event.maxParticipants ?? 100,
+      maxTeamSize:     event.max_team_size    ?? event.maxTeamSize    ?? 4,
+      tags:            event.tags             ?? [],
+      participants:    event.participants     ?? [],
+      createdBy:       event.created_by       ?? event.createdBy      ?? '',
+      bannerUrl:       event.banner_url       ?? event.bannerUrl      ?? '',
+      theme:           event.theme            ?? '',
+      prize:           event.prize            ?? '',
+      lastDate:        event.last_date        ?? event.lastDate       ?? null,
+    }));
+  } catch (e) {
+    console.warn('Could not fetch events from DB:', e.message);
+    return [];
+  }
 }
 
 export async function saveEvent(eventData, isCreate, eventId = null) {
+  // Map camelCase UI fields to snake_case DB columns
+  const dbPayload = {
+    title:            eventData.title,
+    description:      eventData.description,
+    location:         eventData.location,
+    date:             eventData.date,
+    max_participants: eventData.maxParticipants != null ? parseInt(eventData.maxParticipants) : 100,
+    max_team_size:    eventData.maxTeamSize     != null ? parseInt(eventData.maxTeamSize)     : 4,
+    tags:             eventData.tags            ?? [],
+    participants:     eventData.participants    ?? [],
+    created_by:       eventData.createdBy       ?? null,
+    banner_url:       eventData.bannerUrl       ?? '',
+    theme:            eventData.theme           ?? '',
+    prize:            eventData.prize           ?? '',
+    last_date:        eventData.lastDate        ?? null,
+  };
+
   if (isCreate) {
-    const newId = generateLocalId();
-    const localEvents = JSON.parse(localStorage.getItem('ht_events_local')) || {};
-    localEvents[newId] = {
-      id: newId,
-      title: eventData.title,
-      description: eventData.description,
-      location: eventData.location,
-      maxParticipants: eventData.maxParticipants ? parseInt(eventData.maxParticipants) : 100,
-      date: eventData.date,
-      maxTeamSize: parseInt(eventData.maxTeamSize) || 4,
-      tags: eventData.tags || [],
-      updatedAt: new Date().toISOString(),
-      createdBy: eventData.createdBy || '',
-      participants: eventData.participants || [],
-      bannerUrl: eventData.bannerUrl || '',
-      theme: eventData.theme || '',
-      prize: eventData.prize || '',
-      lastDate: eventData.lastDate || eventData.date
-    };
-    localStorage.setItem('ht_events_local', JSON.stringify(localEvents));
-    return { data: [{ id: newId }], error: null };
+    const { data, error } = await supabase
+      .from('events')
+      .insert([dbPayload])
+      .select('id');
+    if (error) throw error;
+    return { data, error: null };
   } else {
     if (!eventId) throw new Error('Event ID is required for update');
 
-    // Check if this is a local event or a DB event
-    const localEvents = JSON.parse(localStorage.getItem('ht_events_local')) || {};
-    if (localEvents[eventId]) {
-      // Update local event directly
-      localEvents[eventId] = {
-        ...localEvents[eventId],
-        title: eventData.title !== undefined ? eventData.title : localEvents[eventId].title,
-        description: eventData.description !== undefined ? eventData.description : localEvents[eventId].description,
-        location: eventData.location !== undefined ? eventData.location : localEvents[eventId].location,
-        maxParticipants: eventData.maxParticipants !== undefined ? parseInt(eventData.maxParticipants) : localEvents[eventId].maxParticipants,
-        date: eventData.date !== undefined ? eventData.date : localEvents[eventId].date,
-        maxTeamSize: eventData.maxTeamSize !== undefined ? parseInt(eventData.maxTeamSize) : localEvents[eventId].maxTeamSize,
-        tags: eventData.tags !== undefined ? eventData.tags : localEvents[eventId].tags,
-        updatedAt: new Date().toISOString(),
-        bannerUrl: eventData.bannerUrl !== undefined ? eventData.bannerUrl : localEvents[eventId].bannerUrl,
-        theme: eventData.theme !== undefined ? eventData.theme : localEvents[eventId].theme,
-        prize: eventData.prize !== undefined ? eventData.prize : localEvents[eventId].prize,
-        lastDate: eventData.lastDate !== undefined ? eventData.lastDate : localEvents[eventId].lastDate
-      };
-      if (eventData.participants !== undefined) {
-        localEvents[eventId].participants = eventData.participants;
-      }
-      if (eventData.createdBy !== undefined) {
-        localEvents[eventId].createdBy = eventData.createdBy;
-      }
-      localStorage.setItem('ht_events_local', JSON.stringify(localEvents));
-    } else {
-      // DB event — update extras only (DB is read-only)
-      const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-      extras[eventId] = {
-        ...extras[eventId],
-        maxTeamSize: eventData.maxTeamSize !== undefined ? parseInt(eventData.maxTeamSize) : extras[eventId]?.maxTeamSize || 4,
-        tags: eventData.tags !== undefined ? eventData.tags : extras[eventId]?.tags || [],
-        updatedAt: new Date().toISOString(),
-        bannerUrl: eventData.bannerUrl !== undefined ? eventData.bannerUrl : extras[eventId]?.bannerUrl || '',
-        theme: eventData.theme !== undefined ? eventData.theme : extras[eventId]?.theme || '',
-        prize: eventData.prize !== undefined ? eventData.prize : extras[eventId]?.prize || '',
-        lastDate: eventData.lastDate !== undefined ? eventData.lastDate : extras[eventId]?.lastDate
-      };
-      if (eventData.participants !== undefined) {
-        extras[eventId].participants = eventData.participants;
-      }
-      localStorage.setItem('ht_events_extra', JSON.stringify(extras));
-    }
+    // Only include defined fields in the update payload
+    const updatePayload = {};
+    if (eventData.title            !== undefined) updatePayload.title            = eventData.title;
+    if (eventData.description      !== undefined) updatePayload.description      = eventData.description;
+    if (eventData.location         !== undefined) updatePayload.location         = eventData.location;
+    if (eventData.date             !== undefined) updatePayload.date             = eventData.date;
+    if (eventData.maxParticipants  !== undefined) updatePayload.max_participants = parseInt(eventData.maxParticipants);
+    if (eventData.maxTeamSize      !== undefined) updatePayload.max_team_size    = parseInt(eventData.maxTeamSize);
+    if (eventData.tags             !== undefined) updatePayload.tags             = eventData.tags;
+    if (eventData.participants     !== undefined) updatePayload.participants     = eventData.participants;
+    if (eventData.createdBy        !== undefined) updatePayload.created_by       = eventData.createdBy;
+    if (eventData.bannerUrl        !== undefined) updatePayload.banner_url       = eventData.bannerUrl;
+    if (eventData.theme            !== undefined) updatePayload.theme            = eventData.theme;
+    if (eventData.prize            !== undefined) updatePayload.prize            = eventData.prize;
+    if (eventData.lastDate         !== undefined) updatePayload.last_date        = eventData.lastDate;
+
+    const { error } = await supabase
+      .from('events')
+      .update(updatePayload)
+      .eq('id', eventId);
+    if (error) throw error;
     return { error: null };
   }
 }
 
 export async function deleteEvent(eventId) {
-  // Check if local event
-  const localEvents = JSON.parse(localStorage.getItem('ht_events_local')) || {};
-  if (localEvents[eventId]) {
-    delete localEvents[eventId];
-    localStorage.setItem('ht_events_local', JSON.stringify(localEvents));
-  } else {
-    // Try DB delete (may fail due to RLS, but try anyway)
-    try {
-      await supabase.from('events').delete().eq('id', eventId);
-    } catch (e) {
-      console.warn('DB event delete failed (RLS):', e.message);
-    }
-  }
-  
-  const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-  delete extras[eventId];
-  localStorage.setItem('ht_events_extra', JSON.stringify(extras));
+  const { error } = await supabase
+    .from('events')
+    .delete()
+    .eq('id', eventId);
+  if (error) throw error;
+  return { error: null };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// joinEvent / leaveEvent
+// Participants cannot directly UPDATE the events table (RLS only allows admins
+// and organisers to do full updates). These functions call SECURITY DEFINER
+// Postgres RPC functions that safely append / remove only the calling user's
+// own ID from the participants array, bypassing the organiser-only policy.
+//
+// Requires the Supabase RPC functions to be created first:
+//   → run supabase_join_leave_rpc.sql in the Supabase SQL Editor
+// ─────────────────────────────────────────────────────────────────────────────
+export async function joinEvent(eventId) {
+  const { error } = await supabase.rpc('join_event', { p_event_id: eventId });
+  if (error) throw error;
+  return { error: null };
+}
+
+export async function leaveEvent(eventId) {
+  const { error } = await supabase.rpc('leave_event', { p_event_id: eventId });
+  if (error) throw error;
   return { error: null };
 }
 

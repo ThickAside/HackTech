@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import ReactDOM from 'react-dom';
 import { supabase } from '../../supabase';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
@@ -40,6 +41,9 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
   const [showEventModal, setShowEventModal] = useState(false);
   const [eventFormMode, setEventFormMode] = useState('create');
   const [selectedEventId, setSelectedEventId] = useState(null);
+
+  // Custom delete confirmation modal state
+  const [deleteConfirm, setDeleteConfirm] = useState({ show: false, eventId: null, eventTitle: '' });
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
@@ -76,6 +80,11 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
   const [orgDept, setOrgDept] = useState(() => localStorage.getItem('ht_org_dept') || 'Department of Technology');
   const [orgEmail, setOrgEmail] = useState(() => localStorage.getItem('ht_org_email') || 'organizer@hacktech.com');
   const [orgHotline, setOrgHotline] = useState(() => localStorage.getItem('ht_org_hotline') || '+1 (555) 480-1280');
+
+  // Event Channel Announcement State
+  const [channelEventId, setChannelEventId] = useState('');
+  const [channelMessage, setChannelMessage] = useState('');
+  const [channelCategory, setChannelCategory] = useState('info');
 
   // Team Approvals State
   const [teamApprovals, setTeamApprovals] = useState(() => {
@@ -238,12 +247,14 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
     setTagsInput(ev.tags ? ev.tags.join(', ') : '');
     
     // Load metadata extras (theme, prize, bannerUrl, lastDate, maxTeamSize)
+    // For locally-created events, these are stored directly on the event object.
+    // For DB events, they are stored in ht_events_extra localStorage.
     const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
     const extraInfo = extras[ev.id] || {};
-    setThemeField(extraInfo.theme || '');
-    setPrizeField(extraInfo.prize || '');
-    setBannerUrl(extraInfo.bannerUrl || '');
-    setMaxTeamSize(extraInfo.maxTeamSize || ev.maxTeamSize || 4);
+    setThemeField(ev.theme || extraInfo.theme || '');
+    setPrizeField(ev.prize || extraInfo.prize || '');
+    setBannerUrl(ev.bannerUrl || extraInfo.bannerUrl || '');
+    setMaxTeamSize(ev.maxTeamSize || extraInfo.maxTeamSize || 4);
 
     // Format dates for input type datetime-local
     if (ev.date) {
@@ -255,8 +266,9 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
       setDate('');
     }
 
-    if (extraInfo.lastDate) {
-      const d = new Date(extraInfo.lastDate);
+    const lastDateValue = ev.lastDate || extraInfo.lastDate;
+    if (lastDateValue) {
+      const d = new Date(lastDateValue);
       const tzoffset = d.getTimezoneOffset() * 60000;
       const localISOTime = (new Date(d.getTime() - tzoffset)).toISOString().slice(0, 16);
       setLastDate(localISOTime);
@@ -311,8 +323,13 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
     }
   };
 
-  const handleDeleteEvent = async (id) => {
-    if (!window.confirm('Delete this event permanently from the system?')) return;
+  const handleRequestDeleteEvent = (id, title) => {
+    setDeleteConfirm({ show: true, eventId: id, eventTitle: title || 'this event' });
+  };
+
+  const handleConfirmDeleteEvent = async () => {
+    const id = deleteConfirm.eventId;
+    setDeleteConfirm({ show: false, eventId: null, eventTitle: '' });
     try {
       await deleteEvent(id);
       showToast('Event removed from platform records.', 'info');
@@ -477,6 +494,40 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
     setAnnouncements(nextAnnouncements);
     localStorage.setItem('ht_announcements', JSON.stringify(nextAnnouncements));
     showToast('Broadcast alert removed.', 'info');
+  };
+
+  // Event Channel Announcements
+  const handlePostToEventChannel = (e) => {
+    e.preventDefault();
+    if (!channelEventId || !channelMessage.trim()) {
+      showToast('Please select an event and type a message.', 'warning');
+      return;
+    }
+
+    const eventTitle = events.find(ev => ev.id === channelEventId)?.title || 'Event';
+    const msg = {
+      id: Math.random().toString(36).substring(2, 9),
+      text: channelMessage.trim(),
+      category: channelCategory,
+      authorName: userData?.name || 'Organiser',
+      createdAt: new Date().toISOString()
+    };
+
+    const channels = JSON.parse(localStorage.getItem('ht_event_channels')) || {};
+    if (!channels[channelEventId]) channels[channelEventId] = [];
+    channels[channelEventId] = [msg, ...channels[channelEventId]];
+    localStorage.setItem('ht_event_channels', JSON.stringify(channels));
+    setChannelMessage('');
+    showToast(`Announcement posted to "${eventTitle}" channel!`, 'success');
+  };
+
+  const handleDeleteChannelMessage = (eventId, msgId) => {
+    const channels = JSON.parse(localStorage.getItem('ht_event_channels')) || {};
+    if (channels[eventId]) {
+      channels[eventId] = channels[eventId].filter(m => m.id !== msgId);
+      localStorage.setItem('ht_event_channels', JSON.stringify(channels));
+      showToast('Channel message removed.', 'info');
+    }
   };
 
   // Publish Results / Winners
@@ -664,7 +715,7 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
                     {events.slice(0, 3).map(ev => {
                       const isUpcoming = new Date(ev.date) > new Date();
                       const eventExtras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-                      const lastDateVal = eventExtras[ev.id]?.lastDate;
+                      const lastDateVal = ev.lastDate || eventExtras[ev.id]?.lastDate;
                       return (
                         <div key={ev.id} className="bg-slate-950/40 border border-slate-905 p-3 rounded-xl flex items-center justify-between gap-3 text-xs">
                           <div>
@@ -689,7 +740,7 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
           {/* SECTION 2: EVENT CATALOG */}
           {activeTab === 'events' && (
             <div className="flex flex-col gap-6">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h3 className="font-outfit font-black text-xl text-slate-100 flex items-center gap-2">
                   <Calendar size={20} className="text-primary" /> Event Catalog
                 </h3>
@@ -701,11 +752,33 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
                 </button>
               </div>
 
+              {/* Search Bar */}
+              <div className="relative w-full">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                <input
+                  type="text"
+                  placeholder="Search events by name, description, or tags (e.g. React, AI)..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-805 rounded-xl py-2.5 pl-10 pr-4 text-xs font-semibold placeholder-slate-550 focus:outline-none focus:border-primary/50"
+                />
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {events.map(ev => {
+                {events
+                  .filter(ev => {
+                    if (!searchQuery.trim()) return true;
+                    const q = searchQuery.toLowerCase();
+                    return (
+                      ev.title?.toLowerCase().includes(q) ||
+                      ev.description?.toLowerCase().includes(q) ||
+                      (ev.tags && ev.tags.some(t => t.toLowerCase().includes(q)))
+                    );
+                  })
+                  .map(ev => {
                   const extras = JSON.parse(localStorage.getItem('ht_events_extra')) || {};
-                  const theme = extras[ev.id]?.theme || 'Tech Challenge';
-                  const prize = extras[ev.id]?.prize || 'Recognition';
+                  const theme = ev.theme || extras[ev.id]?.theme || 'Tech Challenge';
+                  const prize = ev.prize || extras[ev.id]?.prize || 'Recognition';
 
                   return (
                     <div key={ev.id} className="bg-slate-900/40 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between gap-4">
@@ -718,10 +791,21 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-450 mt-2 font-medium">
                           <span>📍 {ev.location}</span>
-                          <span>📅 {new Date(ev.date).toLocaleDateString()}{extras[ev.id]?.lastDate ? ` - ${new Date(extras[ev.id].lastDate).toLocaleDateString()}` : ''}</span>
+                          <span>📅 {new Date(ev.date).toLocaleDateString()}{(ev.lastDate || extras[ev.id]?.lastDate) ? ` - ${new Date(ev.lastDate || extras[ev.id].lastDate).toLocaleDateString()}` : ''}</span>
                           <span>⏳ {ev.participants?.length || 0} / {ev.maxParticipants} Registrants</span>
                         </div>
-                        <p className="text-xs text-slate-400 leading-relaxed mt-3 line-clamp-2">{ev.description}</p>
+                        <p className="text-xs text-slate-400 leading-relaxed mt-3">{ev.description}</p>
+
+                        {/* Tag Pills */}
+                        {ev.tags && ev.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-3">
+                            {ev.tags.map((tag, idx) => (
+                              <span key={idx} className="text-[10px] font-semibold text-slate-300 bg-slate-850 border border-slate-700/60 px-2 py-0.5 rounded-[6px]">
+                                #{tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       <div className="border-t border-slate-800/60 pt-3 flex justify-between items-center">
@@ -738,7 +822,7 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
                             <Edit size={14} />
                           </button>
                           <button
-                            onClick={() => handleDeleteEvent(ev.id)}
+                            onClick={(e) => { e.stopPropagation(); handleRequestDeleteEvent(ev.id, ev.title); }}
                             className="p-2 border border-slate-800 hover:border-danger/30 bg-slate-950 hover:bg-danger/10 rounded-lg text-slate-500 hover:text-danger transition-colors"
                             title="Delete Event"
                           >
@@ -1330,6 +1414,106 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
                   ))}
                 </div>
               </div>
+
+              {/* EVENT-SPECIFIC CHANNEL ANNOUNCEMENTS */}
+              <div className="border-t border-slate-800/60 pt-6 flex flex-col gap-5">
+                <div>
+                  <h4 className="font-outfit font-black text-base text-slate-100 flex items-center gap-2">
+                    <MessageSquare size={16} className="text-accent" /> Event Channel Announcements
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                    Post announcements to a specific event channel. Only participants registered for that event will see these messages in their "Event Channels" section.
+                  </p>
+                </div>
+
+                <form onSubmit={handlePostToEventChannel} className="bg-slate-950/40 border border-slate-900 rounded-xl p-5 flex flex-col gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10.5px] font-bold text-slate-450 uppercase tracking-widest">Target Event *</label>
+                      <select
+                        required
+                        value={channelEventId}
+                        onChange={(e) => setChannelEventId(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-805 rounded-xl px-3 py-2.5 text-xs text-slate-350 font-semibold"
+                      >
+                        <option value="">-- Choose event --</option>
+                        {events.map(ev => (
+                          <option key={ev.id} value={ev.id}>{ev.title}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10.5px] font-bold text-slate-450 uppercase tracking-widest">Message Type</label>
+                      <select
+                        value={channelCategory}
+                        onChange={(e) => setChannelCategory(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-805 rounded-xl px-3 py-2.5 text-xs text-slate-350 font-semibold"
+                      >
+                        <option value="info">📢 General Update</option>
+                        <option value="warning">⚠️ Urgent / Action Required</option>
+                        <option value="success">🎉 Milestone / Achievement</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10.5px] font-bold text-slate-450 uppercase tracking-widest">Channel Message *</label>
+                    <textarea
+                      required
+                      rows={3}
+                      value={channelMessage}
+                      onChange={(e) => setChannelMessage(e.target.value)}
+                      placeholder="e.g. Reminder: Submit your project repo links by 11:59 PM tonight."
+                      className="w-full bg-slate-950/60 border border-slate-805 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-slate-100 focus:outline-none focus:border-accent/50 resize-none"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="self-end bg-gradient-to-r from-accent to-primary text-white font-bold font-outfit px-4 py-2 rounded-xl text-xs shadow-md transition-all active:scale-95"
+                  >
+                    Post to Event Channel
+                  </button>
+                </form>
+
+                {/* Recent Channel Messages Preview */}
+                {channelEventId && (() => {
+                  const channels = JSON.parse(localStorage.getItem('ht_event_channels')) || {};
+                  const msgs = channels[channelEventId] || [];
+                  const eventTitle = events.find(ev => ev.id === channelEventId)?.title || 'Event';
+                  if (msgs.length === 0) return (
+                    <div className="bg-slate-950/20 border border-slate-850 border-dashed rounded-xl p-6 text-center text-xs text-slate-500 italic">
+                      No messages posted to "{eventTitle}" channel yet.
+                    </div>
+                  );
+                  return (
+                    <div className="flex flex-col gap-2">
+                      <h5 className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wider">Recent messages in "{eventTitle}" channel ({msgs.length})</h5>
+                      <div className="flex flex-col gap-2 max-h-[220px] overflow-y-auto pr-1">
+                        {msgs.slice(0, 10).map(m => (
+                          <div key={m.id} className="bg-slate-950/40 border border-slate-900 p-3 rounded-xl flex justify-between items-start gap-3">
+                            <div className="flex items-start gap-2.5 flex-1">
+                              <span className="text-sm shrink-0 mt-0.5">
+                                {m.category === 'warning' ? '⚠️' : m.category === 'success' ? '🎉' : '📢'}
+                              </span>
+                              <div>
+                                <p className="text-xs text-slate-200 leading-relaxed font-semibold">{m.text}</p>
+                                <span className="text-[9px] text-slate-500 font-mono block mt-1">{m.authorName} • {new Date(m.createdAt).toLocaleString()}</span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteChannelMessage(channelEventId, m.id)}
+                              className="text-slate-600 hover:text-danger p-1 rounded shrink-0"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           )}
 
@@ -1579,12 +1763,12 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
         </div>
       )}
 
-      {/* EVENT FORM MODAL (CREATE / EDIT) */}
-      {showEventModal && (
+      {/* EVENT FORM MODAL (CREATE / EDIT) — rendered via Portal */}
+      {showEventModal && ReactDOM.createPortal(
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-3 sm:p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[95vh] sm:max-h-[90vh] page-enter">
             {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-850 flex justify-between items-center">
+            <div className="p-4 sm:p-5 border-b border-slate-850 flex justify-between items-center shrink-0">
               <h3 className="font-outfit font-black text-xl text-slate-100">
                 {eventFormMode === 'create' ? 'Register New Tech Event' : 'Edit Event Details'}
               </h3>
@@ -1746,7 +1930,38 @@ export default function OrganiserConsole({ activeTab: propActiveTab }) {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {/* DELETE CONFIRMATION MODAL — rendered via Portal */}
+      {deleteConfirm.show && ReactDOM.createPortal(
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full shadow-2xl p-6 flex flex-col gap-5 page-enter">
+            <div className="flex flex-col gap-2 text-center">
+              <span className="text-3xl">⚠️</span>
+              <h3 className="font-outfit font-black text-lg text-slate-100">Delete Event?</h3>
+              <p className="text-sm text-slate-400 leading-relaxed">
+                Are you sure you want to permanently delete <strong className="text-slate-200">"{deleteConfirm.eventTitle}"</strong>? This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => setDeleteConfirm({ show: false, eventId: null, eventTitle: '' })}
+                className="px-5 py-2.5 text-slate-400 font-semibold font-outfit border border-slate-800 rounded-xl hover:bg-slate-850 text-xs transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDeleteEvent}
+                className="px-5 py-2.5 font-semibold font-outfit text-xs text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-lg shadow-red-600/20 transition-all active:scale-95"
+              >
+                Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
