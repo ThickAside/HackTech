@@ -1,181 +1,184 @@
-# HackTech — Setup Guide
+# 🚀 HackTech
 
-> **Stack:** HTML + Vanilla CSS + JavaScript + Supabase (Auth + PostgreSQL)
+> **A modern hackathon discovery and team collaboration platform built with React, Vite, Supabase, and Tailwind CSS.**
 
-This application has been successfully migrated from Firebase to **Supabase**. Below are the setup instructions to get your PostgreSQL database, Authentication, and Row Level Security (RLS) policies running.
+<p align="center">
+
+[🌐 Live Demo](https://hack-tech-xi.vercel.app) •
+[💻 GitHub Repository](https://github.com/ThickAside/HackTech)
+
+</p>
 
 ---
 
-## 🚀 Quick Start
+## 📖 Overview
 
-### 1. Create a Supabase Project
+HackTech is a full-stack web application designed to simplify hackathon management by providing dedicated experiences for both **organizers** and **participants**.
 
-1. Go to [https://supabase.com](https://supabase.com) and sign in or sign up.
-2. Click **"New Project"** and select/create an organization.
-3. Name your project (e.g., `hacktech`), set a secure database password, choose a region close to you, and click **"Create New Project"**.
+The platform enables organizers to create and manage hackathons while allowing participants to discover events, register, and collaborate through a centralized system.
 
-### 2. Run the Database Setup SQL Script
+Built with **React**, **Vite**, and **Supabase**, HackTech demonstrates authentication, database management, responsive UI design, and real-world CRUD operations.
 
-To create your database tables and set up security:
-1. In your Supabase Dashboard, click on the **"SQL Editor"** icon in the left sidebar.
-2. Click **"New Query"** to create a blank editor.
-3. Paste the following SQL script into the editor:
+---
 
-```sql
--- 1. Enable UUID Extension
-create extension if not exists "uuid-ossp";
+# 📸 Screenshots
 
--- 2. Create Users Profile Table
-create table public.users (
-  id uuid references auth.users on delete cascade primary key,
-  name text not null,
-  email text not null,
-  role text not null check (role in ('participant', 'admin')),
-  "joinedEvents" text[] default '{}',
-  "createdAt" timestamp with time zone default timezone('utc'::text, now()) not null
-);
+> *(Landing page coming soon. More screenshots will be added as the project evolves.)*
 
--- 3. Create Events Table
-create table public.events (
-  id uuid default gen_random_uuid() primary key,
-  title text not null,
-  description text not null,
-  location text not null,
-  "maxParticipants" integer not null,
-  "maxTeamSize" integer default 4 not null,
-  tags text[] default '{}',
-  date timestamp with time zone not null,
-  "updatedAt" timestamp with time zone default timezone('utc'::text, now()),
-  participants text[] default '{}',
-  "createdBy" uuid references public.users(id),
-  "createdAt" timestamp with time zone default timezone('utc'::text, now()) not null
-);
+## Login Page
 
--- 4. Create Teams Table
-create table public.teams (
-  id uuid default gen_random_uuid() primary key,
-  name text not null,
-  "eventId" uuid references public.events(id) on delete cascade,
-  description text,
-  members text[] default '{}',
-  "leaderId" uuid references public.users(id) on delete cascade,
-  "inviteCode" text not null unique,
-  "maxSize" integer default 4 not null,
-  "createdAt" timestamp with time zone default timezone('utc'::text, now()) not null
-);
+![Login](screenshots/Screenshot (1004))
 
--- 5. Create Blog Posts Table
-create table public.posts (
-  id uuid default gen_random_uuid() primary key,
-  title text not null,
-  body text not null,
-  "eventId" uuid references public.events(id) on delete set null,
-  "eventTitle" text,
-  "authorId" uuid references public.users(id) on delete cascade,
-  "authorName" text not null,
-  likes text[] default '{}',
-  "createdAt" timestamp with time zone default timezone('utc'::text, now()) not null
-);
+---
 
--- Enable Row Level Security (RLS)
-alter table public.users enable row level security;
-alter table public.events enable row level security;
-alter table public.teams enable row level security;
-alter table public.posts enable row level security;
+## Organizer Dashboard
 
--- Users Table Policies
-create policy "Allow read access for authenticated users on users"
-  on public.users for select using (auth.role() = 'authenticated');
+![Organizer Dashboard](screenshots/Screenshot (1002))
 
-create policy "Allow insert/update for users on their own profile"
-  on public.users for all using (auth.uid() = id);
+---
 
--- Events Table Policies
-create policy "Allow read access for authenticated users on events"
-  on public.events for select using (auth.role() = 'authenticated');
+## Participant Dashboard
 
-create policy "Allow update for authenticated users on events (to join/leave)"
-  on public.events for update using (auth.role() = 'authenticated');
+![Participant Dashboard](screenshots/Screenshot (1005))
 
-create policy "Allow admin write operations on events"
-  on public.events for all using (
-    exists (
-      select 1 from public.users
-      where users.id = auth.uid() and users.role = 'admin'
-    )
-  );
+---
 
--- Teams Table Policies
-create policy "Allow read/write access for authenticated users on teams"
-  on public.teams for select using (auth.role() = 'authenticated');
+# ✨ Features
 
-create policy "Allow insert for authenticated users on teams"
-  on public.teams for insert with check (auth.role() = 'authenticated');
+## 👨‍💼 Organizer
 
--- Allow team update
-create policy "Allow update for members on teams"
-  on public.teams for update using (auth.role() = 'authenticated');
+- Secure organizer authentication
+- Create hackathons
+- Edit existing events
+- Delete events
+- Manage participant registrations
+- View organizer dashboard
 
-create policy "Allow delete for team leaders"
-  on public.teams for delete using (auth.uid() = "leaderId");
+## 👨‍🎓 Participant
 
--- Blog Posts Table Policies
-create policy "Allow read/write access for authenticated users on posts"
-  on public.posts for select using (auth.role() = 'authenticated');
+- Register/Login
+- Browse hackathons
+- Join events
+- Leave events
+- View upcoming events
 
-create policy "Allow insert for authenticated users on posts"
-  on public.posts for insert with check (auth.role() = 'authenticated');
+## 🔐 Authentication
 
-create policy "Allow update for authenticated users on posts (to like)"
-  on public.posts for update using (auth.role() = 'authenticated');
+- Supabase Authentication
+- Protected Routes
+- Role-Based Access Control
 
-create policy "Allow delete for post authors"
-  on public.posts for delete using (auth.uid() = "authorId");
+## ☁ Deployment
+
+- Vercel Hosting
+- Supabase PostgreSQL Database
+- Responsive Design
+
+---
+
+# 🛠 Tech Stack
+
+| Category | Technologies |
+|----------|--------------|
+| Frontend | React, Vite, JavaScript |
+| Styling | Tailwind CSS |
+| Backend | Supabase |
+| Database | PostgreSQL |
+| Authentication | Supabase Auth |
+| Deployment | Vercel |
+| Version Control | Git & GitHub |
+
+---
+
+# 🚀 Live Demo
+
+### 🌐 Application
+
+https://hack-tech-xi.vercel.app
+
+---
+
+# ⚙️ Getting Started
+
+Clone the repository
+
+```bash
+git clone https://github.com/ThickAside/HackTech.git
 ```
 
-4. Click the **"Run"** button in the bottom right. You should see a success message indicating your schema has been successfully compiled.
+Move into the project
 
-### 3. Configure `supabase-config.js`
-
-1. Go to **"Project Settings"** (gear icon in the bottom-left sidebar of the Supabase Dashboard) ➔ **"API"**.
-2. Copy the **Project URL** and the **`anon` `public` key**.
-3. Open `supabase-config.js` in your local project folder and replace the placeholders:
-
-```js
-const supabaseUrl = "YOUR_SUPABASE_URL";
-const supabaseKey = "YOUR_SUPABASE_ANON_KEY";
+```bash
+cd HackTech
 ```
 
-### 4. Enable Email Sign Up (No Confirmation for Easy Testing)
+Install dependencies
 
-By default, Supabase requires users to click a link in an email to confirm their account. To disable this for local testing:
-1. Go to **Authentication** (sidebar) ➔ **Providers** ➔ **Email**.
-2. Turn off **"Confirm email"** and click **Save**.
+```bash
+npm install
+```
 
-### 5. Open the App
+Start the development server
 
-You can now open the app!
-* **Option A:** Use the VS Code extension **"Live Server"** (Right-click `index.html` ➔ *Open with Live Server*). This will run the app at `http://127.0.0.1:5500`.
-* **Option B:** Double-click `index.html` in your Windows file browser to open it directly.
-
----
-
-## 👤 User Roles
-
-| Role | How to register | Capabilities |
-|------|----------------|--------------|
-| **Participant** | Click "Participant" on login screen | Browse events, join events, create/join teams, share blog experiences |
-| **Admin** | Click "Admin" on login screen + enter admin code | All above + create/edit/delete tech events, see participant registry |
-
-**Default Admin Code:** `HACKTECH2026` (change this in `supabase-config.js`)
+```bash
+npm run dev
+```
 
 ---
 
-## ✨ Design Customization & Theme
+# 🔐 Environment Variables
 
-The app now incorporates a premium **Neutral Dark Space Glassmorphism** visual style:
-- 🌌 **Space Charcoal Background:** Deep and sophisticated space shades (`#07090e` to `#0d0f17`) with glowing aura radial backgrounds.
-- ⚡ **Purple & Cyan Spotlights:** Ambient glow highlights and custom animated buttons.
-- 🪟 **Futuristic Glass Panels:** Transparent backdrop filters (`backdrop-filter: blur(12px)`) with thin borders.
-- 🎯 **Interactive Cursor Spotlight:** Global mouse movements track a gorgeous spotlight radial gradient that seamlessly follows your cursor!
-- 🧬 **Floating Motion:** Premium ease transitions that scale, float, and shift on hover.
+Create a `.env` file in the project root.
+
+```env
+VITE_SUPABASE_URL=YOUR_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+```
+
+---
+
+# 📁 Project Structure
+
+```
+HackTech
+│
+├── screenshots/
+├── src/
+│   ├── components/
+│   ├── context/
+│   ├── utils/
+│   ├── App.jsx
+│   └── main.jsx
+│
+├── package.json
+├── vite.config.js
+└── README.md
+```
+
+---
+
+# 🗺 Roadmap
+
+- ✅ Authentication
+- ✅ Event Management
+- ✅ Participant Dashboard
+- ✅ Organizer Dashboard
+- ✅ Live Deployment
+- 🔄 Landing Page
+- 🔄 UI/UX Improvements
+- 🔄 Team Collaboration Module
+- 🔄 Analytics Dashboard
+- 🔄 AI-powered Event Recommendations
+
+---
+
+# 👨‍💻 Author
+
+**Nishant Tiwari**
+
+- GitHub: https://github.com/ThickAside
+- LinkedIn: https://www.linkedin.com/in/nishant-tiwari-thickaside/
+
+---
+
+## ⭐ If you found this project interesting, consider giving it a star!
