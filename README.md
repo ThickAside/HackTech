@@ -25,21 +25,17 @@ Built with **React**, **Vite**, and **Supabase**, HackTech demonstrates authenti
 
 > *(Landing page coming soon. More screenshots will be added as the project evolves.)*
 
-## Login Page
+### Login Page
 
-![Login](screenshots/Screenshot (1004))
+![Login Page](screenshots/login-page.png)
 
----
+### Organizer Dashboard
 
-## Organizer Dashboard
+![Organizer Dashboard](screenshots/organizer-dashboard.png)
 
-![Organizer Dashboard](screenshots/Screenshot (1002))
+### Participant Dashboard
 
----
-
-## Participant Dashboard
-
-![Participant Dashboard](screenshots/Screenshot (1005))
+![Participant Dashboard](screenshots/participant-dashboard.png)
 
 ---
 
